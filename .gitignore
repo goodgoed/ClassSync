@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+log.txt
+.env
+sbu_icon.png
+classes.csv
+users.csv
