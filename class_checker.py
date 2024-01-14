@@ -1,4 +1,4 @@
-import re, logging, os, asyncio
+import re, logging, os, asyncio, time
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright, Page, expect
 class Class_Checker:
@@ -9,10 +9,15 @@ class Class_Checker:
         async with async_playwright() as playwright:
             chromium = playwright.chromium
             browser = await chromium.launch(headless=False)
-            page = await browser.new_page()
+            context = await browser.new_context()
+            page = await context.new_page()
             await self.login(page)
-            for _class in classes:
-                await self.find(_class['course_subject'], _class['course_number'], _class['section_number'])
+            # tasks = [asyncio.create_task(self.find(context, _class['course_subject'], _class['course_number'], _class['section_number'])) for _class in classes.values()]
+            # result = await asyncio.gather(tasks)
+            result = await self.find(context, 'CSE', '300', '50494')
+            print(result)
+
+            #TODO - process result into original classes
 
     async def login(self, page: Page):
         try:
@@ -24,57 +29,52 @@ class Class_Checker:
             await password_field.fill(self.credentials['SOLAR_PWD'])
             await submit_form.click()
             
-            await expect(page).to_have_title('Class Search')
+            await expect(page).to_have_title('Employee-facing registry content')
         except Exception as error:
             logging.critical(error)
             self.quit()
 
     # Check the target course on SOLAR and return the (current status, instructor_name)
-    async def find(self, course_subject, course_number, section_number):
+    async def find(self, context, course_subject, course_number, section_number):
         logging.debug(f"LOOKING FOR {course_subject} {course_number} [{section_number}]")
 
         try:
-            self.driver.get("https://psns.cc.stonybrook.edu/psp/csprods/EMPLOYEE/CAMP/c/SA_LEARNER_SERVICES.CLASS_SEARCH.GBL?1&PORTALPARAM_PTCNAV=SU_CLASS_SEARCH&EOPP.SCNode=CAMP&EOPP.SCPortal=EMPLOYEE&EOPP.SCName=ADMN_SOLAR_SYSTEM&EOPP.SCLabel=Enrollment&EOPP.SCFName=HCCC_ENROLLMENT&EOPP.SCSecondary=true&EOPP.SCPTcname=PT_PTPP_SCFNAV_BASEPAGE_SCR&FolderPath=PORTAL_ROOT_OBJECT.CO_EMPLOYEE_SELF_SERVICE.SU_STUDENT_FOLDER.HCCC_ENROLLMENT.SU_CLASS_SEARCH&IsFolder=false")
-            iframe = WebDriverWait(self.driver, 30).until(
-                EC.presence_of_element_located((By.XPATH, '/html/body/div[4]/div[1]/iframe'))
-            )
-            self.driver.switch_to.frame(iframe)
-            term_select_field = Select(WebDriverWait(self.driver, 30).until(
-                EC.presence_of_element_located((By.ID, "CLASS_SRCH_WRK2_STRM$35$"))
-            ))
-            term_select_field.select_by_value("1244") #SELECT SPRING 2024
+            page = await context.new_page()
+            await page.goto("https://prod.ps.stonybrook.edu/psp/csprods/EMPLOYEE/CAMP/c/SA_LEARNER_SERVICES.CLASS_SEARCH.GBL?1&PORTALPARAM_PTCNAV=SU_CLASS_SEARCH&EOPP.SCNode=CAMP&EOPP.SCPortal=EMPLOYEE&EOPP.SCName=ADMN_SOLAR_SYSTEM&EOPP.SCLabel=Enrollment&EOPP.SCFName=HCCC_ENROLLMENT&EOPP.SCSecondary=true&EOPP.SCPTcname=PT_PTPP_SCFNAV_BASEPAGE_SCR&FolderPath=PORTAL_ROOT_OBJECT.CO_EMPLOYEE_SELF_SERVICE.SU_STUDENT_FOLDER.HCCC_ENROLLMENT.SU_CLASS_SEARCH&IsFolder=false")
+
+            #Choose current semester
+            iframe = page.frame_locator('#ptifrmtgtframe')
+            term_select_field = iframe.locator('#CLASS_SRCH_WRK2_STRM$35$')
+            await term_select_field.select_option('Spring 2024')
             time.sleep(0.5)
             
-            subject_field = WebDriverWait(self.driver, 30).until(
-                EC.presence_of_element_located((By.ID, "SSR_CLSRCH_WRK_SUBJECT$0"))
-            )
-            subject_field.send_keys(course_subject)
+            #Fill course subject
+            subject_field = iframe.locator('#SSR_CLSRCH_WRK_SUBJECT$0')
+            await subject_field.fill(course_subject)
 
-            course_number_field = self.driver.find_element(By.ID, "SSR_CLSRCH_WRK_CATALOG_NBR$1")
-            course_number_field.click()
+            #Fill course number
+            course_number_field = iframe.locator('#SSR_CLSRCH_WRK_CATALOG_NBR$1')
+            await course_number_field.click() #to reflect the change
             time.sleep(0.5)
-            course_number_field.send_keys(course_number)
+            await course_number_field.fill(course_number)
 
-            course_career_field = Select(WebDriverWait(self.driver, 30).until(
-                EC.presence_of_element_located((By.ID, "SSR_CLSRCH_WRK_ACAD_CAREER$2"))
-            ))
-            course_career_field.select_by_value('UGRD')
+            #Fill undergraduate
+            course_career_field = iframe.locator('#SSR_CLSRCH_WRK_ACAD_CAREER$2')
+            await course_career_field.select_option('Undergraduate')
             time.sleep(0.5)
 
-            open_class_only_button = self.driver.find_element(By.ID, 'SSR_CLSRCH_WRK_SSR_OPEN_ONLY$3')
-            open_class_only_button.click()
+            #Click off to see all course
+            open_class_only_button = iframe.locator('#SSR_CLSRCH_WRK_SSR_OPEN_ONLY$3')
+            await open_class_only_button.click()
 
-            submit_form = self.driver.find_element(By.ID, 'CLASS_SRCH_WRK2_SSR_PB_CLASS_SRCH')
-            submit_form.click()
+            #Search
+            submit_form = iframe.locator('#CLASS_SRCH_WRK2_SSR_PB_CLASS_SRCH')
+            await submit_form.click()
 
-            course_status = WebDriverWait(self.driver, 30).until(
-                EC.presence_of_element_located((By.XPATH, f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 1)]/div/div/img"))
-            )
-            course_instructor = WebDriverWait(self.driver, 30).until(
-                EC.presence_of_element_located((By.XPATH, f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 3)]/div/span"))
-            )
+            course_status = iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 1)]/div/div/img")
+            course_instructor = iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 3)]/div/span")
 
-            return (course_status.get_attribute('alt').upper(), course_instructor.text)
+            return (course_status.get_attribute('alt').upper(), course_instructor.inner_text())
 
         except Exception as error:
             logging.critical(error)
