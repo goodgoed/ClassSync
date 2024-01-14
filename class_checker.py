@@ -12,9 +12,8 @@ class Class_Checker:
             context = await browser.new_context()
             page = await context.new_page()
             await self.login(page)
-            # tasks = [asyncio.create_task(self.find(context, _class['course_subject'], _class['course_number'], _class['section_number'])) for _class in classes.values()]
-            # result = await asyncio.gather(tasks)
-            result = await self.find(context, 'CSE', '300', '50494')
+            tasks = [asyncio.create_task(self.find(context, _class['course_subject'], _class['course_number'], _class['section_number'])) for _class in classes.values()]
+            result = await asyncio.gather(tasks)
             print(result)
 
             #TODO - process result into original classes
@@ -41,48 +40,44 @@ class Class_Checker:
         try:
             page = await context.new_page()
             await page.goto("https://prod.ps.stonybrook.edu/psp/csprods/EMPLOYEE/CAMP/c/SA_LEARNER_SERVICES.CLASS_SEARCH.GBL?1&PORTALPARAM_PTCNAV=SU_CLASS_SEARCH&EOPP.SCNode=CAMP&EOPP.SCPortal=EMPLOYEE&EOPP.SCName=ADMN_SOLAR_SYSTEM&EOPP.SCLabel=Enrollment&EOPP.SCFName=HCCC_ENROLLMENT&EOPP.SCSecondary=true&EOPP.SCPTcname=PT_PTPP_SCFNAV_BASEPAGE_SCR&FolderPath=PORTAL_ROOT_OBJECT.CO_EMPLOYEE_SELF_SERVICE.SU_STUDENT_FOLDER.HCCC_ENROLLMENT.SU_CLASS_SEARCH&IsFolder=false")
+            await expect(page).to_have_title('Class Search')
 
             #Choose current semester
             iframe = page.frame_locator('#ptifrmtgtframe')
-            term_select_field = iframe.locator('#CLASS_SRCH_WRK2_STRM$35$')
+            term_select_field = iframe.get_by_label('Term')
             await term_select_field.select_option('Spring 2024')
             time.sleep(0.5)
             
             #Fill course subject
-            subject_field = iframe.locator('#SSR_CLSRCH_WRK_SUBJECT$0')
+            subject_field = iframe.get_by_label('Subject')
             await subject_field.fill(course_subject)
 
             #Fill course number
-            course_number_field = iframe.locator('#SSR_CLSRCH_WRK_CATALOG_NBR$1')
+            course_number_field = iframe.get_by_label('Course Number')
             await course_number_field.click() #to reflect the change
             time.sleep(0.5)
             await course_number_field.fill(course_number)
 
             #Fill undergraduate
-            course_career_field = iframe.locator('#SSR_CLSRCH_WRK_ACAD_CAREER$2')
+            course_career_field = iframe.get_by_label('Course Career')
             await course_career_field.select_option('Undergraduate')
             time.sleep(0.5)
 
             #Click off to see all course
-            open_class_only_button = iframe.locator('#SSR_CLSRCH_WRK_SSR_OPEN_ONLY$3')
+            open_class_only_button = iframe.get_by_label('Show Open Classes Only')
             await open_class_only_button.click()
 
             #Search
-            submit_form = iframe.locator('#CLASS_SRCH_WRK2_SSR_PB_CLASS_SRCH')
+            submit_form = iframe.get_by_role('button', name='Search', exact=True)
             await submit_form.click()
 
-            course_status = iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 1)]/div/div/img")
-            course_instructor = iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 3)]/div/span")
+            course_status = await iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 1)]/div/div/img").get_attribute('alt')
+            course_instructor = await iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 3)]/div/span").inner_text()
 
-            return (course_status.get_attribute('alt').upper(), course_instructor.inner_text())
+            return (course_status.upper(), course_instructor)
 
         except Exception as error:
             logging.critical(error)
-            self.quit()
-
-    def quit(self):
-        self.driver.quit()
-
 
 if __name__ == '__main__':
     async def main():
@@ -91,7 +86,19 @@ if __name__ == '__main__':
             'SOLAR_ID': os.getenv('SOLAR_ID'),
             'SOLAR_PWD': os.getenv('SOLAR_PWD')
         }
+        classes = {
+            "11111111": {
+                'course_subject': 'CSE',
+                'course_number': 300,
+                'section_number': '50494'
+            },
+            "22222222": {
+                'course_subject': 'CSE',
+                'course_number': 312,
+                'section_number': '50712'
+            }
+        }
         class_checker = Class_Checker(CREDENTIALS)
-        await class_checker.run(classes=[])
+        await class_checker.run(classes=classes)
 
     asyncio.run(main())
