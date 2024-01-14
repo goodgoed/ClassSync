@@ -1,4 +1,5 @@
-import re, logging
+import re, logging, os, asyncio
+from dotenv import load_dotenv
 from playwright.async_api import async_playwright, Page, expect
 class Class_Checker:
     def __init__(self, credentials):
@@ -10,24 +11,26 @@ class Class_Checker:
             browser = await chromium.launch(headless=False)
             page = await browser.new_page()
             await self.login(page)
+            for _class in classes:
+                await self.find(_class['course_subject'], _class['course_number'], _class['section_number'])
 
     async def login(self, page: Page):
         try:
-            page.goto("https://psns.cc.stonybrook.edu/psp/csprods/EMPLOYEE/CAMP/c/SA_LEARNER_SERVICES.CLASS_SEARCH.GBL?1&PORTALPARAM_PTCNAV=SU_CLASS_SEARCH&EOPP.SCNode=CAMP&EOPP.SCPortal=EMPLOYEE&EOPP.SCName=ADMN_SOLAR_SYSTEM&EOPP.SCLabel=Enrollment&EOPP.SCFName=HCCC_ENROLLMENT&EOPP.SCSecondary=true&EOPP.SCPTcname=PT_PTPP_SCFNAV_BASEPAGE_SCR&FolderPath=PORTAL_ROOT_OBJECT.CO_EMPLOYEE_SELF_SERVICE.SU_STUDENT_FOLDER.HCCC_ENROLLMENT.SU_CLASS_SEARCH&IsFolder=false")
-            username_field = await page.query_selector('#userid')
-            password_field = await page.query_selector('#pwd')
-            submit_form = await page.query_selector('[name=pwd]')
-            username_field.fill(self.credentials['SOLAR_ID'])
-            password_field.fill(self.credentials['SOLAR_PWD'])
-            submit_form.click()
+            await page.goto("https://prod.ps.stonybrook.edu/psp/csprods/?cmd=login")
+            username_field = page.get_by_label('Stony Brook ID#')
+            password_field = page.get_by_label('Password')
+            submit_form = page.locator('input[name=Submit]')
+            await username_field.fill(self.credentials['SOLAR_ID'])
+            await password_field.fill(self.credentials['SOLAR_PWD'])
+            await submit_form.click()
             
-            expect(page.title, 'Class Search')
+            await expect(page).to_have_title('Class Search')
         except Exception as error:
             logging.critical(error)
             self.quit()
 
     # Check the target course on SOLAR and return the (current status, instructor_name)
-    def find(self, course_subject, course_number, section_number):
+    async def find(self, course_subject, course_number, section_number):
         logging.debug(f"LOOKING FOR {course_subject} {course_number} [{section_number}]")
 
         try:
@@ -79,3 +82,16 @@ class Class_Checker:
 
     def quit(self):
         self.driver.quit()
+
+
+if __name__ == '__main__':
+    async def main():
+        load_dotenv()
+        CREDENTIALS = {
+            'SOLAR_ID': os.getenv('SOLAR_ID'),
+            'SOLAR_PWD': os.getenv('SOLAR_PWD')
+        }
+        class_checker = Class_Checker(CREDENTIALS)
+        await class_checker.run(classes=[])
+
+    asyncio.run(main())
