@@ -12,11 +12,18 @@ class Class_Checker:
             context = await browser.new_context()
             page = await context.new_page()
             await self.login(page)
-            tasks = [asyncio.create_task(self.find(context, _class['course_subject'], _class['course_number'], _class['section_number'])) for _class in classes.values()]
-            result = await asyncio.gather(tasks)
-            print(result)
+            
+            # TODO - figure out why it is not working
+            # result = await asyncio.gather(*[asyncio.create_task(self.find(context, _class['course_subject'], _class['course_number'], _class['section_number'])) for _class in classes.values()])
+            # print(result)
 
-            #TODO - process result into original classes
+            #TODO
+            for _class in classes.values():
+                status, instructor = await self.find(page, _class['course_subject'], _class['course_number'], _class['section_number'])
+                _class['status'] = status
+                _class['instructor'] = instructor
+
+            return classes
 
     async def login(self, page: Page):
         try:
@@ -34,11 +41,10 @@ class Class_Checker:
             self.quit()
 
     # Check the target course on SOLAR and return the (current status, instructor_name)
-    async def find(self, context, course_subject, course_number, section_number):
+    async def find(self, page, course_subject, course_number, section_number):
         logging.debug(f"LOOKING FOR {course_subject} {course_number} [{section_number}]")
 
         try:
-            page = await context.new_page()
             await page.goto("https://prod.ps.stonybrook.edu/psp/csprods/EMPLOYEE/CAMP/c/SA_LEARNER_SERVICES.CLASS_SEARCH.GBL?1&PORTALPARAM_PTCNAV=SU_CLASS_SEARCH&EOPP.SCNode=CAMP&EOPP.SCPortal=EMPLOYEE&EOPP.SCName=ADMN_SOLAR_SYSTEM&EOPP.SCLabel=Enrollment&EOPP.SCFName=HCCC_ENROLLMENT&EOPP.SCSecondary=true&EOPP.SCPTcname=PT_PTPP_SCFNAV_BASEPAGE_SCR&FolderPath=PORTAL_ROOT_OBJECT.CO_EMPLOYEE_SELF_SERVICE.SU_STUDENT_FOLDER.HCCC_ENROLLMENT.SU_CLASS_SEARCH&IsFolder=false")
             await expect(page).to_have_title('Class Search')
 
@@ -89,12 +95,12 @@ if __name__ == '__main__':
         classes = {
             "11111111": {
                 'course_subject': 'CSE',
-                'course_number': 300,
+                'course_number': '300',
                 'section_number': '50494'
             },
             "22222222": {
                 'course_subject': 'CSE',
-                'course_number': 312,
+                'course_number': '312',
                 'section_number': '50712'
             }
         }
