@@ -1,6 +1,7 @@
 import os, discord, csv, re, sys
 from dotenv import load_dotenv
 from discord import app_commands, Client
+from discord.utils import get
 from discord.ext import tasks
 from discord.flags import Intents
 
@@ -47,7 +48,7 @@ async def on_ready():
         for user_id in next(csv.reader(user_csv_file, delimiter=',')):
             classes[int(user_id)] = []
     except StopIteration:
-        print("No rows in the CSV file.", file=sys.stderr)
+        pass
     finally:
         user_csv_file.close()
 
@@ -68,15 +69,30 @@ async def on_ready():
 
     # sync the slash commands
     await tree.sync(guild=GUILD_ID)
+
+    # start the loop
+    notify.start()
     print("RUNNING...")
 
+@bot.event
+async def on_member_join(member):
+    guild = get(member.guild.channels, id=768670193379049483)
+    await guild.send(f"Welcome! Start by running `join` command.")
+
 # ========= SLASH COMMANDS =========
-@tree.command(name='testing', description='This command is for testing purpose')
-async def prompt(interaction: discord.Interaction):
-    await interaction.response.send_message("HI THERE")
+@tree.command()
+async def help(interaction: discord.Interaction):
+    message = '''PLEASE RUN `join` COMMAND BEFORE RUNNING ANY COMMANDS
+
+    List of commands:
+      1. register
+      2. unregister
+      3. show
+    '''
+    await interaction.response.send_message(message)
 
 @tree.command()
-async def register(interaction: discord.Interaction):
+async def join(interaction: discord.Interaction):
     user_id = interaction.user.id
 
     # If user is already registered, prompt the user and return
@@ -90,7 +106,7 @@ async def register(interaction: discord.Interaction):
 
 @tree.command()
 @app_commands.check(is_registered)
-async def request(interaction: discord.Interaction, section_number: str, course_subject: str, course_number: str):
+async def register(interaction: discord.Interaction, section_number: str, course_subject: str, course_number: str):
     user_id = interaction.user.id
 
     # Check if section number is correct
@@ -120,10 +136,25 @@ async def request(interaction: discord.Interaction, section_number: str, course_
 
 @tree.command()
 @app_commands.check(is_registered)
+async def unregister(interaction: discord.Interaction, section_number: str):
+    user_id = interaction.user.id
+
+    course_subject = ""
+    course_number = ""
+    for index, _class in enumerate(classes[user_id]):
+        if _class['section_number'] == section_number:
+            course_subject = _class['course_subject']
+            course_number = _class['course_number']
+            classes.pop(index)
+
+    await interaction.response.send_message(f"Successfully unregistered the [{section_number}] {course_subject} {course_number}")
+
+@tree.command()
+@app_commands.check(is_registered)
 async def show(interaction: discord.Interaction):
     user_id = interaction.user.id
 
-    messages = ""
+    messages = "Courses you registered:\n"
     for _class in classes[user_id]:
         messages += f"[{_class['section_number']}] {_class['course_subject']} {_class['course_number']}"
     
@@ -133,44 +164,49 @@ async def show(interaction: discord.Interaction):
     await interaction.response.send_message(messages)
 
 # ========= LOOPS =========
-#TODO change class_checker functions into async
-# @tasks.loop(seconds=5.0)
-# async def notify():
-#     # Write the data to the file
-#     user_csv_file = open(user_file_path, 'w')
-#     if len(classes.keys()) != 0:
-#         user_csv_file.write(','.join(str(key) for key in list(classes)))
-#     user_csv_file.close()
+@tasks.loop(minutes=5.0)
+async def notify():
+    global classes
+    if len(classes.keys()) == 0: return
+    
+    # Write the data to the file
+    user_csv_file = open(user_file_path, 'w')
+    user_csv_file.write(','.join(str(key) for key in list(classes)))
+    user_csv_file.close()
 
-#     class_csv_file = open(class_file_path, 'w')
-#     data = "user_id,section_number,course_subject,course_number\n"
-#     for user_id in classes:
-#         for _class in classes[user_id]:
-#             data += f"{user_id},{_class['section_number']},{_class['course_subject']},{_class['course_number']}\n"
-#     class_csv_file.write(data)
-#     class_csv_file.close()
+    class_csv_file = open(class_file_path, 'w')
+    data = "user_id,section_number,course_subject,course_number\n"
+    for user_id in classes:
+        for _class in classes[user_id]:
+            data += f"{user_id},{_class['section_number']},{_class['course_subject']},{_class['course_number']}\n"
+    class_csv_file.write(data)
+    class_csv_file.close()
 
-#     # check classes for each user
-#     class_checker.login()
-#     for user_id in classes:
-#         # Collect information (heavy task)
-#         messages = ""
-#         for _class in classes[user_id]:
-#             course_subject = _class['course_subject']
-#             course_number =  _class['course_number']
-#             section_number = _class['section_number']
-#             status, instructor = class_checker.find(course_subject,course_number,section_number)
-#             messages += f"[{section_number}] {course_subject} {course_number} - {instructor} is now {status}\n"
+    # check classes for each user
+    classes = await class_checker.run(classes=classes)
+    for user in classes:
+        messages = ""
+        for index,_class in enumerate(classes[user]):
+            course_subject = _class['course_subject']
+            course_number =  _class['course_number']
+            section_number = _class['section_number']
+            status = _class['status']
+            instructor = _class['instructor']
 
-#         # Send a message if any course is available
-#         if messages:
-#             messages = "NEW UPDATE!\n\n" + messages
-#             user = await bot.fetch_user(int(user_id))  
-#             await user.send(messages)
-#     class_checker.quit()
+            if _class['status'] == 'ERROR':
+                messages += f"[{section_number}] {course_subject} {course_number} is removed because of unavailability\n"
+                classes[user].pop(index)
+            elif _class['status'] == 'OPEN':
+                messages += f"[{section_number}] {course_subject} {course_number} - {instructor} is now {status}\n"
+        if messages:
+            messages = "NEW UPDATE!\n\n" + messages
+            user = await bot.fetch_user(int(user_id))  
+            await user.send(messages)
 
 # ========= ERROR =========
-@request.error
+@join.error
+@register.error
+@unregister.error
 @show.error
 async def on_check_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.errors.CheckFailure):

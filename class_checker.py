@@ -11,17 +11,16 @@ class Class_Checker:
             browser = await chromium.launch(headless=False)
             context = await browser.new_context()
             page = await context.new_page()
+
             await self.login(page)
+            for user in classes:
+                for _class in classes[user]:
+                    status, instructor = await self.find(page, _class['course_subject'], _class['course_number'], _class['section_number'])
+                    _class['status'] = status
+                    _class['instructor'] = instructor
             
             # TODO - figure out why it is not working
             # result = await asyncio.gather(*[asyncio.create_task(self.find(context, _class['course_subject'], _class['course_number'], _class['section_number'])) for _class in classes.values()])
-            # print(result)
-
-            #TODO
-            for _class in classes.values():
-                status, instructor = await self.find(page, _class['course_subject'], _class['course_number'], _class['section_number'])
-                _class['status'] = status
-                _class['instructor'] = instructor
 
             return classes
 
@@ -77,8 +76,14 @@ class Class_Checker:
             submit_form = iframe.get_by_role('button', name='Search', exact=True)
             await submit_form.click()
 
-            course_status = await iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 1)]/div/div/img").get_attribute('alt')
-            course_instructor = await iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 3)]/div/span").inner_text()
+            existence = await iframe.get_by_role('link', name=section_number).count()
+
+            if existence:
+                course_status = await iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 1)]/div/div/img").get_attribute('alt')
+                course_instructor = await iframe.locator(f"//*[contains(text(),'{section_number}')]/../../../../td[position() = (last() - 3)]/div/span").inner_text()
+            else:
+                course_status = 'error'
+                course_instructor = None
 
             return (course_status.upper(), course_instructor)
 
@@ -93,16 +98,16 @@ if __name__ == '__main__':
             'SOLAR_PWD': os.getenv('SOLAR_PWD')
         }
         classes = {
-            "11111111": {
+            "11111111": [{
                 'course_subject': 'CSE',
                 'course_number': '300',
-                'section_number': '50494'
-            },
-            "22222222": {
-                'course_subject': 'CSE',
-                'course_number': '312',
-                'section_number': '50712'
-            }
+                'section_number': '55555'
+            }],
+            # "22222222": [{
+            #     'course_subject': 'CSE',
+            #     'course_number': '312',
+            #     'section_number': '50555'
+            # }]
         }
         class_checker = Class_Checker(CREDENTIALS)
         await class_checker.run(classes=classes)
